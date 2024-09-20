@@ -16,7 +16,6 @@
 package org.traccar.protocol;
 
 import io.netty.buffer.ByteBuf;
-import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
 import org.traccar.BaseProtocolDecoder;
@@ -163,20 +162,12 @@ public class CastelProtocolDecoder extends BaseProtocolDecoder {
             if (!PID_LENGTH_MAP.containsKey(pids[i])) {
                 throw new RuntimeException(String.format("Unknown PID 0x%02x", pids[i]));
             }
-            switch (PID_LENGTH_MAP.get(pids[i])) {
-                case 1:
-                    value = buf.readUnsignedByte();
-                    break;
-                case 2:
-                    value = buf.readUnsignedShortLE();
-                    break;
-                case 4:
-                    value = buf.readIntLE();
-                    break;
-                default:
-                    value = 0;
-                    break;
-            }
+            value = switch (PID_LENGTH_MAP.get(pids[i])) {
+                case 1 -> buf.readUnsignedByte();
+                case 2 -> buf.readUnsignedShortLE();
+                case 4 -> buf.readIntLE();
+                default -> 0;
+            };
             position.add(ObdDecoder.decodeData(pids[i], value, false));
         }
     }
@@ -191,9 +182,9 @@ public class CastelProtocolDecoder extends BaseProtocolDecoder {
         buf.readUnsignedShortLE(); // current fuel consumption
 
         long state = buf.readUnsignedIntLE();
-        position.set(Position.KEY_ALARM, BitUtil.check(state, 4) ? Position.ALARM_ACCELERATION : null);
-        position.set(Position.KEY_ALARM, BitUtil.check(state, 5) ? Position.ALARM_BRAKING : null);
-        position.set(Position.KEY_ALARM, BitUtil.check(state, 6) ? Position.ALARM_IDLE : null);
+        position.addAlarm(BitUtil.check(state, 4) ? Position.ALARM_ACCELERATION : null);
+        position.addAlarm(BitUtil.check(state, 5) ? Position.ALARM_BRAKING : null);
+        position.addAlarm(BitUtil.check(state, 6) ? Position.ALARM_IDLE : null);
         position.set(Position.KEY_IGNITION, BitUtil.check(state, 2 * 8 + 2));
         position.set(Position.KEY_STATUS, state);
 
@@ -251,50 +242,24 @@ public class CastelProtocolDecoder extends BaseProtocolDecoder {
 
     private void decodeAlarm(Position position, int alarm) {
         switch (alarm) {
-            case 0x01:
-                position.set(Position.KEY_ALARM, Position.ALARM_OVERSPEED);
-                break;
-            case 0x02:
-                position.set(Position.KEY_ALARM, Position.ALARM_LOW_POWER);
-                break;
-            case 0x03:
-                position.set(Position.KEY_ALARM, Position.ALARM_TEMPERATURE);
-                break;
-            case 0x04:
-                position.set(Position.KEY_ALARM, Position.ALARM_ACCELERATION);
-                break;
-            case 0x05:
-                position.set(Position.KEY_ALARM, Position.ALARM_BRAKING);
-                break;
-            case 0x06:
-                position.set(Position.KEY_ALARM, Position.ALARM_IDLE);
-                break;
-            case 0x07:
-                position.set(Position.KEY_ALARM, Position.ALARM_TOW);
-                break;
-            case 0x08:
-                position.set(Position.KEY_ALARM, Position.ALARM_HIGH_RPM);
-                break;
-            case 0x09:
-                position.set(Position.KEY_ALARM, Position.ALARM_POWER_ON);
-                break;
-            case 0x0B:
-                position.set(Position.KEY_ALARM, Position.ALARM_LANE_CHANGE);
-                break;
-            case 0x0C:
-                position.set(Position.KEY_ALARM, Position.ALARM_CORNERING);
-                break;
-            case 0x0E:
-                position.set(Position.KEY_ALARM, Position.ALARM_POWER_OFF);
-                break;
-            case 0x16:
-                position.set(Position.KEY_IGNITION, true);
-                break;
-            case 0x17:
-                position.set(Position.KEY_IGNITION, false);
-                break;
-            default:
-                break;
+            case 0x01 -> position.addAlarm(Position.ALARM_OVERSPEED);
+            case 0x02 -> position.addAlarm(Position.ALARM_LOW_POWER);
+            case 0x03 -> position.addAlarm(Position.ALARM_TEMPERATURE);
+            case 0x04 -> position.addAlarm(Position.ALARM_ACCELERATION);
+            case 0x05 -> position.addAlarm(Position.ALARM_BRAKING);
+            case 0x06 -> position.addAlarm(Position.ALARM_IDLE);
+            case 0x07 -> position.addAlarm(Position.ALARM_TOW);
+            case 0x08 -> position.addAlarm(Position.ALARM_HIGH_RPM);
+            case 0x09 -> position.addAlarm(Position.ALARM_POWER_ON);
+            case 0x0B -> position.addAlarm(Position.ALARM_LANE_CHANGE);
+            case 0x0C -> position.addAlarm(Position.ALARM_CORNERING);
+            case 0x0D -> position.addAlarm(Position.ALARM_FATIGUE_DRIVING);
+            case 0x0E -> position.addAlarm(Position.ALARM_POWER_OFF);
+            case 0x11 -> position.addAlarm(Position.ALARM_ACCIDENT);
+            case 0x12 -> position.addAlarm(Position.ALARM_TAMPERING);
+            case 0x16 -> position.set(Position.KEY_IGNITION, true);
+            case 0x17 -> position.set(Position.KEY_IGNITION, false);
+            case 0x1C -> position.addAlarm(Position.ALARM_VIBRATION);
         }
     }
 
@@ -359,9 +324,9 @@ public class CastelProtocolDecoder extends BaseProtocolDecoder {
                     int alarmCount = buf.readUnsignedByte();
                     for (int i = 0; i < alarmCount; i++) {
                         if (buf.readUnsignedByte() != 0) {
-                            int alarm = buf.readUnsignedByte();
+                            int event = buf.readUnsignedByte();
                             for (Position p : positions) {
-                                decodeAlarm(p, alarm);
+                                decodeAlarm(p, event);
                             }
                             buf.readUnsignedShortLE(); // description
                             buf.readUnsignedShortLE(); // threshold
@@ -421,12 +386,26 @@ public class CastelProtocolDecoder extends BaseProtocolDecoder {
                 return position;
 
             case MSG_SC_DTCS_PASSENGER:
+            case MSG_SC_DTCS_COMMERCIAL:
                 position = createPosition(deviceSession);
 
                 decodeStat(position, buf);
 
                 buf.readUnsignedByte(); // flag
-                position.add(ObdDecoder.decodeCodes(ByteBufUtil.hexDump(buf.readSlice(buf.readUnsignedByte()))));
+
+                count = buf.readUnsignedByte();
+                StringBuilder codes = new StringBuilder();
+                for (int i = 0; i < count; i++) {
+                    if (type == MSG_SC_DTCS_COMMERCIAL) {
+                        codes.append(ObdDecoder.decodeCode(buf.readUnsignedShortLE()));
+                        buf.readUnsignedByte(); // attribute
+                        buf.readUnsignedByte(); // occurrence
+                    } else {
+                        codes.append(ObdDecoder.decodeCode(buf.readUnsignedShortLE()));
+                    }
+                    codes.append(' ');
+                }
+                position.set(Position.KEY_DTCS, codes.toString().trim());
 
                 return position;
 
@@ -598,15 +577,11 @@ public class CastelProtocolDecoder extends BaseProtocolDecoder {
             return null;
         }
 
-        switch (version) {
-            case -1:
-                return decodeMpip(channel, remoteAddress, buf, version, id, type, deviceSession);
-            case 3:
-            case 4:
-                return decodeSc(channel, remoteAddress, buf, version, id, type, deviceSession);
-            default:
-                return decodeCc(channel, remoteAddress, buf, version, id, type, deviceSession);
-        }
+        return switch (version) {
+            case -1 -> decodeMpip(channel, remoteAddress, buf, version, id, type, deviceSession);
+            case 3, 4 -> decodeSc(channel, remoteAddress, buf, version, id, type, deviceSession);
+            default -> decodeCc(channel, remoteAddress, buf, version, id, type, deviceSession);
+        };
     }
 
 }

@@ -34,7 +34,7 @@ import org.traccar.storage.query.Columns;
 import org.traccar.storage.query.Condition;
 import org.traccar.storage.query.Request;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import java.util.Objects;
 
 @RequestScoped
@@ -98,10 +98,12 @@ public class PermissionsService {
         }
     }
 
-    public void checkEdit(long userId, Class<?> clazz, boolean addition) throws StorageException, SecurityException {
+    public void checkEdit(
+            long userId, Class<?> clazz, boolean addition, boolean skipReadonly)
+            throws StorageException, SecurityException {
         if (!getUser(userId).getAdministrator()) {
             boolean denied = false;
-            if (getServer().getReadonly() || getUser(userId).getReadonly()) {
+            if (!skipReadonly && (getServer().getReadonly() || getUser(userId).getReadonly())) {
                 denied = true;
             } else if (clazz.equals(Device.class)) {
                 denied = getServer().getDeviceReadonly() || getUser(userId).getDeviceReadonly()
@@ -121,11 +123,12 @@ public class PermissionsService {
         }
     }
 
-    public void checkEdit(long userId, BaseModel object, boolean addition) throws StorageException, SecurityException {
+    public void checkEdit(
+            long userId, BaseModel object, boolean addition, boolean skipReadonly)
+            throws StorageException, SecurityException {
         if (!getUser(userId).getAdministrator()) {
-            checkEdit(userId, object.getClass(), addition);
-            if (object instanceof GroupedModel) {
-                GroupedModel after = ((GroupedModel) object);
+            checkEdit(userId, object.getClass(), addition, skipReadonly);
+            if (object instanceof GroupedModel after) {
                 if (after.getGroupId() > 0) {
                     GroupedModel before = null;
                     if (!addition) {
@@ -137,8 +140,7 @@ public class PermissionsService {
                     }
                 }
             }
-            if (object instanceof Schedulable) {
-                Schedulable after = ((Schedulable) object);
+            if (object instanceof Schedulable after) {
                 if (after.getCalendarId() > 0) {
                     Schedulable before = null;
                     if (!addition) {
@@ -150,8 +152,7 @@ public class PermissionsService {
                     }
                 }
             }
-            if (object instanceof Notification) {
-                Notification after = ((Notification) object);
+            if (object instanceof Notification after) {
                 if (after.getCommandId() > 0) {
                     Notification before = null;
                     if (!addition) {
@@ -181,7 +182,7 @@ public class PermissionsService {
                 || before.getUserLimit() != after.getUserLimit()) {
             checkAdmin(userId);
         }
-        User user = getUser(userId);
+        User user = userId > 0 ? getUser(userId) : null;
         if (user != null && user.getExpirationTime() != null
                 && !Objects.equals(before.getExpirationTime(), after.getExpirationTime())
                 && (after.getExpirationTime() == null

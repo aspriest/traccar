@@ -1,5 +1,5 @@
 /*
- * Copyright 2016 - 2022 Anton Tananaev (anton@traccar.org)
+ * Copyright 2016 - 2024 Anton Tananaev (anton@traccar.org)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,11 +29,11 @@ import org.traccar.storage.StorageException;
 import org.traccar.storage.query.Columns;
 import org.traccar.storage.query.Request;
 
-import javax.inject.Inject;
-import javax.inject.Singleton;
-import javax.ws.rs.client.Client;
-import javax.ws.rs.client.Entity;
-import javax.ws.rs.core.Form;
+import jakarta.inject.Inject;
+import jakarta.inject.Singleton;
+import jakarta.ws.rs.client.Client;
+import jakarta.ws.rs.client.Entity;
+import jakarta.ws.rs.core.Form;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.HashMap;
@@ -119,7 +119,7 @@ public class StatisticsManager {
             }
 
             String url = config.getString(Keys.SERVER_STATISTICS);
-            if (url != null) {
+            if (url != null && !url.isEmpty()) {
                 String time = DateUtil.formatDate(statistics.getCaptureTime());
 
                 Form form = new Form();
@@ -139,6 +139,13 @@ public class StatisticsManager {
                         form.param("protocols", objectMapper.writeValueAsString(statistics.getProtocols()));
                     } catch (JsonProcessingException e) {
                         LOGGER.warn("Failed to serialize protocols", e);
+                    }
+                }
+                if (!statistics.getAttributes().isEmpty()) {
+                    try {
+                        form.param("attributes", objectMapper.writeValueAsString(statistics.getAttributes()));
+                    } catch (JsonProcessingException e) {
+                        LOGGER.warn("Failed to serialize attributes", e);
                     }
                 }
 
@@ -167,6 +174,10 @@ public class StatisticsManager {
             deviceProtocols.put(deviceId, protocol);
             deviceMessages.merge(deviceId, 1, Integer::sum);
         }
+    }
+
+    public synchronized int messageStoredCount() {
+        return messagesStored;
     }
 
     public synchronized int messageStoredCount(long deviceId) {
